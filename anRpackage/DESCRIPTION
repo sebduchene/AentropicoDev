@@ -1,0 +1,11 @@
+Package: mypackage
+Type: Package
+Title: mypackage
+Version: 1.0
+Date: 2013-03-03
+Author: Sebastian Duchene at Aentropico engineering blog
+Maintainer: Aentropico engineering blog <sebastian.duchene6@gmail.com>
+Description: This package is a basic test to learn how to build R extensions
+Suggests: boot, MASS
+Depends:  boot, MASS
+License: GNU
