@@ -1,0 +1,418 @@
+On writing packages in R
+========================
+By Sebastian Duchene at Aentropico Engineering blog
+----------------------------------------------------
+In this post we will go through the necessary steps to write packages in R in a UNIX environment. After completing this guide, you should be able to get your R code in a format that can be reproduced, shared, and edited easily by any user. We do not assume extensive programming skills, but having some previous exposure to writing R functions will make the content more accessible. 
+For an thorough introduction to the R language please refer to:
+
+- http://cran.r-project.org/doc/manuals/R-intro.pdf
+
+A very concise refresher on how to write functions (and a quick reference for R in general):
+
+- http://www.statmethods.net/management/userfunctions.html
+
+Please note this is not an exhaustive guide. In particular, we will not cover how to edit S3 and S4 methods, nor importing foreign code in R. Rather, we will focus on R extensions written in R language. However, at the end of this post we have listed some references for the more advanced topics.
+
+**What are R packages and how do we use them?**
+
+Many end users use R for statistical analyses, sometimes as a free, albeit less user friendly, alternative to Microsoft Excel, SPSS, STATA, and other statistical software packages. One of the advantages of using R, as opposed to Excel, for instance, is that any analysis or statistical test you can think of is probably available. However, for the less well known methods and operations, we often need to resort to additional programs that are not included in the "out of the box" distributions of R. These are called packages and are equivalent to Microsoft excel add-ins.
+As an example, suppose we want to fit a distribution by maximum likelihood to a set of numbers:
+
+```r
+# Simulate 100 numbers from a standard normal distribution and store in a
+# variable x:
+set.seed(1234)
+x <- rnorm(100)
+```
+
+If we googled "fit a distribution by maximum likelihood in R", the top hit (or one of the top hits) is the help site for the fitdistr function. We can test it on our data for x:
+
+```r
+fitdistr(x, densfun = "normal")
+```
+
+```
+## Error: could not find function "fitdistr"
+```
+
+The function is not available in our R session. We need to download, install and load the MASS package:
+
+```r
+# Download the package from the CRAN repository
+install.packages("MASS")
+```
+
+```
+## --- Please select a CRAN mirror for use in this session ---
+```
+
+```
+## Loading Tcl/Tk interface ...
+```
+
+```
+## done
+```
+
+```
+## 
+## The downloaded binary packages are in
+##   /var/folders/tq/6smyj67x4q78ww1r8h3w95lm0000gp/T//RtmpKRwnKO/downloaded_packages
+```
+
+```r
+# load the package into the R session
+library(MASS)
+```
+
+Now we can try the fitdistr function again:
+
+```r
+fitdistr(x, densfun = "normal")
+```
+
+```
+##      mean        sd   
+##   -0.15676    0.99937 
+##  ( 0.09994) ( 0.07067)
+```
+
+This time the function was found within the MASS package and called on our data object (x). 
+
+As users become more familiar with R, and explore its capabilities, it is often desirable to write a set of functions that can be shared with other users. These can be written into a text file, and shared as a script, which can be loaded into R using different functions, such as source, load, or copying and pasting the code into the console. A more efficient and more stable way to save R code is in a package. MASS contains many more functions, we can see the list with the following commands:
+```
+ls("package:MASS")
+# The output is a long list of the functions available, among which is the fitdistr we used in the example.
+```
+In this post we will write some very simple functions, and put them in a package for later use. We can then post the package in a repository, or send it to collaborators. Others will be able to use the code like we showed in the previous example with MASS.
+
+**Step 1: Creating some data and functions**
+
+First, we need to think of what our function will do. In this example, we will write a function to calculate a Student’s T test for the means of two samples of the same size and variance.
+We will generate two variables of 100 numbers from a normal distribution with different means (10 and 15) and s.d = 3. We have used the set.seed so that our example is reproducible.
+
+```r
+set.seed(1234)
+x <- abs(rnorm(100, 10, 3))
+set.seed(3456)
+y <- abs(rnorm(100, 15, 3))
+```
+
+We can visually inspect the distributions of the two variables as a sanity check of how the distributions differ.
+
+```r
+hist(x, col = rgb(0, 0, 0.8, 0.5), xlim = c(min(c(min(x), min(y))), max(c(max(x), 
+    max(y)))), freq = F, xlab = "")
+legend(x = max(x) * 0.95, y = 0.14, legend = c("x", "y"), fill = c(rgb(0, 0, 
+    0.8, 0.5), rgb(0.8, 0, 0, 0.5)))
+lines(density(x), lwd = 2, col = rgb(0, 0, 0.8, 0.5))
+hist(y, col = rgb(0.8, 0, 0, 0.5), add = T, freq = F)
+lines(density(y), lwd = 2, col = rgb(0.8, 0, 0, 0.5))
+```
+
+![plot of chunk unnamed-chunk-6](figure/unnamed-chunk-6.png) 
+
+Now we can create a function to calculate the t statistic. Recall the equation.
+We will need to calculate the pooled standard deviation, the mean of each sample variable, and the degrees of freedom.
+
+```r
+fun.t.test <- function(x, y){
+	m.x <- mean(x) # The mean for the first variable	
+	m.y <- mean(y) # The mean for the second variable	
+	sd.x <- sd(x) # Standard deviation of the first variable	
+	sd.y <- sd(y) # Standard deviation of the first variable	
+	deg.f <- 2*length(x) - 2 # Degress of freedom for the test statistic	
+	pooled.sd <- sqrt((sd.x^2 + sd.y^2)/2) # Pooled standard deviation	
+	t.stat <- (m.x - m.y) / (pooled.sd * sqrt(2/length(x))) # t statistic	
+	p.val <- pt(t.stat, deg.f)	# P value of the test statistic	
+	res.data <- c(m.x, m.y, sd.x, sd.y, deg.f, pooled.sd, t.stat, p.val) # A vector containing the results	
+	names(res.data) <- c("mean_X", "mean_Y", "sd_x", "sd_y", "deg_freedom", "sd_pooled", "t_statistic", "P_value") 	
+	if(p.val < 0.05){ # This "if" statement is a message that we will print if the difference in means is statistically significant.
+		print("The difference in the means of the two variables is statistically signifficant")
+	}	
+	return(res.data)
+}
+```
+
+We can create a second function to reproduce the plot we showed earlier
+
+```r
+plot.t.test.dat <- function(x, y) {
+    hist(x, col = rgb(0, 0, 0.8, 0.5), xlim = c(min(c(min(x), min(y))), max(c(max(x), 
+        max(y)))), freq = F, xlab = "")
+    legend(x = max(x) * 0.95, y = 0.14, legend = c("x", "y"), fill = c(rgb(0, 
+        0, 0.8, 0.5), rgb(0.8, 0, 0, 0.5)))
+    lines(density(x), lwd = 2, col = rgb(0, 0, 0.8, 0.5))
+    hist(y, col = rgb(0.8, 0, 0, 0.5), add = T, freq = F)
+    lines(density(y), lwd = 2, col = rgb(0.8, 0, 0, 0.5))
+}
+```
+
+**Step 2 making a package skeleton**
+
+Now that the data and a couple of functions have been created, we can build the package. It is important to make sure that we have only the objects of interest loaded in our R session. Anything else will be also be dragged into the package. To verify this, type in the following lines:
+
+```r
+ls()  #The output should be the following, and nothing else. Otherwise, remove any unwanted objects by uncommenting the code bellow
+```
+
+```
+## [1] "fun.t.test"      "plot.t.test.dat" "x"               "y"
+```
+
+```r
+# rm(list = c('concatenate the unwanted objects here'))
+```
+
+Now we will use the function package.skeleton:
+
+```r
+package.skeleton()
+```
+
+```
+## Creating directories ...
+```
+
+```
+## Creating DESCRIPTION ...
+```
+
+```
+## Creating NAMESPACE ...
+```
+
+```
+## Creating Read-and-delete-me ...
+```
+
+```
+## Saving functions and data ...
+```
+
+```
+## Making help files ...
+```
+
+```
+## Done.
+```
+
+```
+## Further steps are described in './anRpackage/Read-and-delete-me'.
+```
+
+Further steps are described in "./anRpackage/Read-and-delete-me".
+This will produce a file called "anRpackage" in the working directory. Open it and look at the contents. You will find three files ("man", "data", and "R") and three text files ("DESCRIPTION", "NAMESPACE", and "Read-and-delete-me").
+
+**Step 3: Preparing the package skeleton**
+
+Now that we have looked at the contents of "anRpackage", we can proceed to editing its contents. We can find some useful instruction in the "Read-and-delete-me" file. Open "Read-and-delete-me" in a text editor such as text wrangler or note pad. We will now follow the steps:
+- Edit the help file skeletons in 'man', possibly combining help files
+  for multiple functions.
+- Open the man file and edit each of the .Rd files as [shown here](https://github.com/sebduchene/AentropicoDev/tree/master/anRpackage). The .Rd extension refers to R documentation files.
+
+In this case, we don’t need to edit other files apart from those in "man". If we were to import code in C or in an other language that needed compiling, more steps would be needed. But the steps shown here should be enough if we can get by using R only.
+We are almost done editing the package skeleton. The final steps are as follows:
+- Delete the "Read-and-delete-me" file.
+- Rename the folder "anRpackage" to "mypackage". 
+- Rename the file "anRpackage-package.Rd" in the man folder to "mypackage-package.Rd"
+Since we edited the contents of the package skeleton, we added a few explanatory notes bellow.
+
+**On editing the man folder:**
+
+ .Rd and DESCRIPTION files in R package skeleton
+Most of the editing we did is replacing some of the text description in the files. As you progress in writing R packages, you will find that there are many other options and documentation that we may want to include. This example is the simplest case. However, we added a few lines to "DESCRIPTION" file in case our package requires calling function from other packages. 
+Imagine that one of your functions uses the function "fitdistr" from the MASS package, or the "boot" function from the "boot" package. When our package is installed, these other packages must be loaded in R so that their functions are available. These packages are called dependencies. We make sure our package loads them by specifying them in the lines starting with "Depends" and "Suggests" in the "DESCRIPTION" file.
+For more information on R extensions refer to: http://cran.r-project.org/doc/manuals/R-exts.html
+
+**Step 4: Building the package tarball and checking**
+
+We are ready to check our package for errors and put it into a tarbal that we can share with other users.
+Open a terminal window and cd to the directory that contains the "mypackage" folder. Type "R CMD check mypackage". You should see an output like this
+```
+* using log directory ‘/Users/sebastianduchene/Dropbox/finde2/devPackages/mypackage.Rcheck’
+* using R version 2.15.3 (2013-03-01)
+* using platform: x86_64-apple-darwin9.8.0 (64-bit)
+* using session charset: UTF-8
+* checking for file ‘mypackage/DESCRIPTION’ ... OK
+* checking extension type ... Package
+* this is package ‘mypackage’ version ‘1.0’
+* checking package namespace information ... OK
+* checking package dependencies ... OK
+* checking if this is a source package ... OK
+* checking if there is a namespace ... OK
+* checking for executable files ... OK
+* checking whether package ‘mypackage’ can be installed ... OK
+* checking installed package size ... OK
+* checking package directory ... OK
+* checking for portable file names ... OK
+* checking for sufficient/correct file permissions ... OK
+```
+This is the standard tests that R performs. We will get a warning for the licence specification. This is because of the licence syntax that we used, the R extensions manual has more information on this topic. We will ignore this warning for the purpose of our example. As long as we have no errors, we can proceed.
+Note
+There is a new folder in our working directory called "mypackage.Rcheck", which contains some information on the checking steps, and the tests performed. Although we will not go into the details here, we encourage you to look at its contents. Some of it will be useful when you write more complicated functions.
+
+Now type in the terminal window "R CMD build mypackage". You should see an output like this:
+```
+* checking for file ‘mypackage/DESCRIPTION’ ... OK
+* preparing ‘mypackage’:
+* checking DESCRIPTION meta-information ... OK
+* checking for LF line-endings in source and make files
+* checking for empty or unneeded directories
+* looking to see if a ‘data/datalist’ file should be added
+* building ‘mypackage_1.0.tar.gz’
+```
+
+Our package is now built. It is the "mypackage_1.0.tar.gz" in our working folder.
+
+**Step 5: Testing the package**
+
+Now that our package has been built. We can install it as a source in R.
+Open R, set the working directory (using setwd("path")) to where "mypackage_1.0.tar.gz" is located. Now type:
+```
+install.packages("mypackage_1.0.tar.gz", type = "source", repos = NULL)
+```
+We included arguments "type = "source"" and "repos = NULL" because the defaults in R are to look for packages in the cran repository, and load the binary package versions. In our case, we want R to use the file we specified in our working directory, and treat it as a source, rather than an OS binary.
+You will see an output like this:
+```
+* installing *source* package ‘mypackage’ ...
+** R
+** data
+** preparing package for lazy loading
+** help
+*** installing help indices
+** building package indices
+** testing if installed package can be loaded
+*** arch - i386
+*** arch - x86_64
+...
+```
+Now we need to load the package. Type:
+
+```r
+library(mypackage)
+```
+
+```
+## Loading required package: boot
+```
+
+```
+## Attaching package: 'mypackage'
+```
+
+```
+## The following object(s) are masked _by_ '.GlobalEnv':
+## 
+## fun.t.test, plot.t.test.dat
+```
+
+Now we can try a our two functions to verify that they are loaded and that they work as expected.
+
+```r
+data(var1)
+data(var2)
+fun.t.test(var1, var2)
+```
+
+```
+## [1] "The difference in the means of the two variables is statistically signifficant"
+```
+
+```
+##      mean_X      mean_Y        sd_x        sd_y deg_freedom   sd_pooled 
+##   9.530e+00   1.493e+01   3.013e+00   2.845e+00   1.980e+02   2.930e+00 
+## t_statistic     P_value 
+##  -1.303e+01   1.006e-28
+```
+
+
+```r
+plot.t.test.dat(var1, var2)
+```
+
+![plot of chunk unnamed-chunk-13](figure/unnamed-chunk-13.png) 
+
+We can see everything seems to work OK with our package. With more complex functions it is important to conduct much more thorough testing.
+The last thing we will look at is the documentation available through the R console. This includes help files, citations, and other options as we specified in our modifications of the package skeleton:
+
+```r
+help(fun.t.test)
+citation("mypackage")
+```
+
+```
+## 
+## To cite package 'mypackage' in publications use:
+## 
+##   Sebastian Duchene at Aentropico engineering blog (2013).
+##   mypackage: mypackage. R package version 1.0.
+## 
+## A BibTeX entry for LaTeX users is
+## 
+##   @Manual{,
+##     title = {mypackage: mypackage},
+##     author = {Sebastian Duchene at Aentropico engineering blog},
+##     year = {2013},
+##     note = {R package version 1.0},
+##   }
+## 
+## ATTENTION: This citation information has been auto-generated from
+## the package DESCRIPTION file and may need manual editing, see
+## 'help("citation")' .
+```
+
+```r
+example(fun.t.test)
+```
+
+```
+## 
+## fn.t.t> set.seed(1234)
+## 
+## fn.t.t> a <- rnorm(100, 3, 4)
+## 
+## fn.t.t> b <- rnorm(100, 5, 1)
+## 
+## fn.t.t> result <- fun.t.test(a, b)
+## [1] "The difference in the means of the two variables is statistically signifficant"
+## 
+## fn.t.t> ## The function is currently defined as
+## fn.t.t> function (x, y) 
+## fn.t.t+ {
+## fn.t.t+     m.x <- mean(x)
+## fn.t.t+     m.y <- mean(y)
+## fn.t.t+     sd.x <- sd(x)
+## fn.t.t+     sd.y <- sd(y)
+## fn.t.t+     deg.f <- 2 * length(x) - 2
+## fn.t.t+     pooled.sd <- sqrt((sd.x^2 + sd.y^2)/2)
+## fn.t.t+     t.stat <- (m.x - m.y)/(pooled.sd * sqrt(2/length(x)))
+## fn.t.t+     p.val <- pt(t.stat, deg.f)
+## fn.t.t+     res.data <- c(m.x, m.y, sd.x, sd.y, deg.f, pooled.sd, t.stat, 
+## fn.t.t+         p.val)
+## fn.t.t+     names(res.data) <- c("mean_X", "mean_Y", "sd_x", "sd_y", 
+## fn.t.t+         "deg_freedom", "sd_pooled", "t_statistic", "P_value")
+## fn.t.t+     return(res.data)
+## fn.t.t+   }
+## function (x, y) 
+## {
+##     m.x <- mean(x)
+##     m.y <- mean(y)
+##     sd.x <- sd(x)
+##     sd.y <- sd(y)
+##     deg.f <- 2 * length(x) - 2
+##     pooled.sd <- sqrt((sd.x^2 + sd.y^2)/2)
+##     t.stat <- (m.x - m.y)/(pooled.sd * sqrt(2/length(x)))
+##     p.val <- pt(t.stat, deg.f)
+##     res.data <- c(m.x, m.y, sd.x, sd.y, deg.f, pooled.sd, t.stat, 
+##         p.val)
+##     names(res.data) <- c("mean_X", "mean_Y", "sd_x", "sd_y", 
+##         "deg_freedom", "sd_pooled", "t_statistic", "P_value")
+##     return(res.data)
+##   }
+```
+
+**Final remarks**
+
+Packages often need maintenance when users find bugs or unexpected behaviour. To update the code, or add more functions and data, simply decompress the .tar.gz file we created with the R CMD build command, modify or add any files to the uncompressed file, and run check and build again. This will make up the various versions of your package.
